@@ -1,4 +1,8 @@
-% The Tox Reference
+---
+layout: default
+title: The Tox Reference (modified; preview)
+permalink: /index.html
+---
 
 # Introduction
 
