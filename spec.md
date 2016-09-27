@@ -26,10 +26,64 @@ bytes (e.g. `32`), a number in bits (e.g. `7` bit), a choice of lengths (e.g.
 `4 | 16`), or an inclusive range (e.g. `[0, 100]`). Open ranges are denoted
 `[n,]` to mean a minimum length of `n` with no specified maximum length.
 
+## TODO: Goals and threat model
+
+This section should give an idea on what are the goals and non-goals of Tox, so
+that reader
+
+-   understands what problems Tox intends to solve
+-   can validate if they are addresed by this specification
+-   can make better tradeoffs and decisions in his own reimplementation of the
+    protocol
+
+(TODO: this is just a placeholder; some more technical description should be
+given)
+
+What Tox Does:
+
+-   Authentication: user's address is its public key, thus "adding friend"
+    actually means verifying key (false in case of toxme?); drawback is that
+    after being compromised you have to generate absolutely new identity; also
+    it complicates working with multiple devices; (TODO: how about some web of
+    trust, master keys and subkeys here?)
+
+-   End-to-end encryption: all the messages are encrypted via keys derived via
+    DH, thus keys are only known to sender and receiver and are never
+    transfered over network
+
+-   Forward secrecy (?): can be achieved by using ephemeral keys (TODO: how are
+    they used in the current protocol? is the problem actually solved?)
+
+-   Reliability:
+    -   Tox is supposed to be fully decentralized network which doesn't depend
+        on any Single Point of Failure; this is achieved by using DHT, though
+        you still need an entry point;
+    -   Tox is supposed to work under (almost) any kind of NAT and firewall;
+        this is achieved by using hole-punching, UPnP and TCP-relays;
+    -   Resistance to basic DoS and other poisoning
+-   (Near-)Zero-conf: end-user should be able to *just* use the messenger;
+
+What Tox Does NOT:
+
+-   Tox does not care about anonymity; Unless TCP mode is used, participants
+    communicate directly to each other; One of the reasons for this is that
+    relaying real-time video is rather too costly (in terms of load) and also
+    means delays;
+    -   Your IP Address is exposed to nodes in your friendlist; They can link
+        your ID directly to IP Address;
+    -   Temporary DHT nodes and onion tunnels are used to find friends, so that
+        your ID cannot be linked to your IP based solely on publicly available
+        data (TODO: i.e. data stored in DHT? what else is exposed?); Though
+        adversary intercepting traffic in large enough network segment
+        is (probably) able to perform some statistical-based attack; (TODO:
+        what problem it is supposed to solve? does it solve it? since we don't
+        care about anonymity, i can only think of prevention of some targeted
+        Denial-of-Service attacks)
+
 ## Integers
 
 The protocol uses four bounded unsigned integer types. Bounded means they have
-a upper bound beyond which incrementing is not defined. The integer types
+an upper bound beyond which incrementing is not defined. The integer types
 support modular arithmetic, so overflow wraps around to zero. Unsigned means
 their lower bound is 0. Signed integer types are not used. The binary encoding
 of all integer types is a fixed-width byte sequence with the integer encoded in
@@ -59,14 +113,6 @@ Characters (U+240x) is not permitted without additional marker.
 The Crypto module contains all the functions and data types related to
 cryptography. This includes random number generation, encryption and
 decryption, key generation, operations on nonces and generating random nonces.
-
-## Text
-
-The Tox protocol differentiates between two types of text: Plain Text and
-Cipher Text. Cipher Text may be transmitted over untrusted data channels. Plain
-Text can be Sensitive or Non Sensitive. Sensitive Plain Text must be
-transformed into Cipher Text using the encryption function before it can be
-transmitted over untrusted data channels.
 
 ## Key
 
@@ -106,7 +152,7 @@ documentation](https://nacl.cr.yp.to/scalarmult.html) for details.
 
 A Combined Key is computed from a Secret Key and a Public Key using the NaCl
 function `crypto_box_beforenm`. Given two Key Pairs KP1 (SK1, PK1) and KP2
-(SK2, PK1), the Combined Key computed from (SK1, PK2) equals the one computed
+(SK2, PK2), the Combined Key computed from (SK1, PK2) equals the one computed
 from (SK2, PK1). This allows for symmetric encryption, as peers can derive the
 same shared key from their own secret key and their peer's public key.
 
@@ -139,6 +185,12 @@ the system as non friends could tie some people's DHT keys and long term keys
 together.
 
 ## Box
+
+The Tox protocol differentiates between two types of text: Plain Text and
+Cipher Text. Cipher Text may be transmitted over untrusted data channels. Plain
+Text can be Sensitive or Non Sensitive. Sensitive Plain Text must be
+transformed into Cipher Text using the encryption function before it can be
+transmitted over untrusted data channels.
 
 The encryption function takes a Combined Key, a Nonce, and a Plain Text, and
 returns a Cipher Text. It uses `crypto_box_afternm` to perform the encryption.
@@ -226,7 +278,7 @@ can be used to simplify the implementation.
 The number `130` is used for an IPv4 TCP relay and `138` is used to indicate an
 IPv6 TCP relay.
 
-The reason for these numbers is because the numbers on Linux for IPv4 and IPv6
+The reason for these numbers is that the numbers on Linux for IPv4 and IPv6
 (the `AF_INET` and `AF_INET6` defines) are `2` and `10`. The TCP numbers are
 just the UDP numbers `+ 128`.
 
@@ -286,6 +338,7 @@ e.g. [Ping Request (0x00)](#ping-request-0x00).
 | `0x8c`     | Onion Response 3    |
 | `0x8d`     | Onion Response 2    |
 | `0x8e`     | Onion Response 1    |
+| `0xf0`     | Bootstrap Info      |
 
 # DHT
 
@@ -309,17 +362,18 @@ connect directly to them via UDP.
 ## Distance
 
 A Distance is a positive integer. Its human-readable representation is a
-base-16 number. Distance is an [ordered
+base-16 number. Distance (type) is an [ordered
 monoid](https://en.wikipedia.org/wiki/Ordered_semigroup) with the associative
-binary operator `+` and the identity element `0`. When we speak of a "close
-node", we mean that their Distance to the node under consideration is small
-compared to the Distance to other nodes.
+binary operator `+` and the identity element `0`.
 
-The DHT needs a [metric](https://en.wikipedia.org/wiki/Metric_(mathematics)) to
+The DHT uses a [metric](https://en.wikipedia.org/wiki/Metric_(mathematics)) to
 determine distance between two nodes. The Distance type is the co-domain of
 this metric. The metric currently used by the Tox DHT is the `XOR` of the
-nodes' public keys. The public keys are interpreted as Big Endian integers (see
-[Crypto Numbers](#key-1)).
+nodes' public keys: `distance(x, y) = x XOR y`. Public keys are interpreted as
+Big Endian integers (see [Crypto Numbers](#key-1)).
+
+When we speak of a "close node", we mean that its Distance to the node under
+consideration is small compared to the Distance to other nodes.
 
 An implementation is not required to provide a Distance type, so it has no
 specified binary representation. For example, instead of computing a distance
@@ -329,17 +383,31 @@ without computing the complete integral value. This works, because as soon as
 an ordering decision can be made in the most significant bits, further bits
 won't influence that decision.
 
-The XOR metric `d` satisfies the required conditions:
+XOR is a valid metric, i.e. it satisfies the required conditions:
 
-1.  Non-negativity `d(x, y) >= 0`: Since public keys are Crypto Numbers, which
-    are by definition positive, their XOR is necessarily positive.
+1.  Non-negativity `distance(x, y) >= 0`: Since public keys are Crypto Numbers,
+    which are by definition positive, their XOR is necessarily positive.
 
-2.  Identity of indiscernibles `d(x, y) == 0` iff `x == y`: The XOR of two
-    integers is zero iff they are equal.
+2.  Identity of indiscernibles `distance(x, y) == 0` iff `x == y`: The XOR of
+    two integers is zero iff they are equal.
 
-3.  Symmetry `d(x, y) == d(y, x)`: XOR is a symmetric operation.
+3.  Symmetry `distance(x, y) == distance(y, x)`: XOR is a symmetric operation.
 
-4.  Subadditivity `d(x, z) <= d(x, y) + d(y, z)`: TODO.
+4.  Subadditivity `distance(x, z) <= distance(x, y) + distance(y, z)`: follows
+    from associativity, since
+    `x XOR z = x XOR (y XOR y) XOR z = distance(x, y) XOR distance(y, z)` which
+    is not greather than `distance(x,y) + distance(y, z)`
+
+In addition, XOR has other useful properties:
+
+-   Unidirectionality: given the key `x` and the distance `d` there exist one
+    and only one key `y` such that `distance(x, y) = d`.
+
+    The implication is that repeated lookups are likely to pass along the same
+    way and thus caching makes sense
+
+    Source:
+    [maymounkov-kademlia](http://pdos.csail.mit.edu/~petar/papers/maymounkov-kademlia-lncs.pdf)
 
 Example: Given three nodes with keys 2, 5, and 6:
 
@@ -369,7 +437,7 @@ A k-buckets is a map from small integers `0 <= n < 256` to a set of up to `k`
 Node Infos. The set is called a bucket. `k` is called the bucket size. The
 default bucket size is 8.
 
-The number `n` is the bucket index. It is positive integer with the range
+The above number `n` is the bucket index. It is positive integer with the range
 `[0, 255]`, i.e. the range of an 8 bit unsigned integer.
 
 A bucket entry is an element of the bucket. The bucket is an ordered set, and
@@ -379,14 +447,15 @@ set, the last (greatest) element is the furthest away.
 
 ### Bucket Index
 
-The bucket index can be computed using the following function:
+The index of the bucket can be computed using the following function:
 `bucketIndex(baseKey, nodeKey) = 255 - log_2(distance(baseKey, nodeKey))`. This
 function is not defined when `baseKey == nodeKey`, meaning k-buckets will never
-contain a Node Info about the local node.
+contain a Node Info about the base node.
 
 Thus, each k-bucket contains only Node Infos for whose keys the following
 holds: if node with key `nodeKey` is in k-bucket with index `n`, then
-`bucketIndex(baseKey, nodeKey) == n`.
+`bucketIndex(baseKey, nodeKey) == n`. Thus, n'th k-bucket consists of nodes for
+which distance to the base node lies in range `[2^n, 2^(n+1) - 1]`.
 
 The bucket index can be efficiently computed by determining the first bit at
 which the two keys differ, starting from the most significant bit. So, if the
@@ -396,6 +465,11 @@ the bucket index is 1. If the keys are almost exactly equal and only the last
 bit differs, the bucket index is 255.
 
 ### Updating k-buckets
+
+TODO: this is different from kademlia's least-recently-seen eviction policy;
+why the existing solution was chosen, how does it affect security, performance
+and resistance to poisoning? original paper claims that preference of old live
+nodes results in better persistence and resistance to basic DDoS attacks;
 
 Any update or lookup operation on a k-buckets instance that involves a single
 node requires us to first compute the bucket index for that node. An update
@@ -442,10 +516,10 @@ them.
 ## DHT Packet
 
 The DHT Packet contains the sender's DHT Public Key, an encryption Nonce, and
-an encrypted payload. The payload is encrypted with the the DHT secret key of
-the sender, the DHT public key of the receiver, and the nonce that is sent
-along with the packet. DHT Packets are sent inside Protocol Packets with a
-varying Packet Kind.
+an encrypted payload. The payload is encrypted with the DHT secret key of the
+sender, the DHT public key of the receiver, and the nonce that is sent along
+with the packet. DHT Packets are sent inside Protocol Packets with a varying
+Packet Kind.
 
 | Length  | Type       | [Contents](#protocol-packet) |
 |:--------|:-----------|:-----------------------------|
@@ -544,7 +618,7 @@ response has in their list of known nodes.
 
 ### Packed node format
 
-The DHT Send nodes uses the Packed Node Format.
+The DHT Send Nodes uses the Packed Node Format.
 
 Only the UDP Protocol (IP Type `2` and `10`) are used in the DHT module when
 sending nodes with the packed node format. This is because the TCP Protocol is
@@ -573,8 +647,8 @@ closer than the DHT public key of at least one of the nodes in the list to the
 public key being searched with that list. When a node is added to a full list,
 it will replace the furthest node.
 
-If the 32 nodes number where increased, it would increase the amount of packets
-needed to check if each of them are still alive which would increase the
+If the 32 nodes number were increased, it would increase the amount of packets
+needed to check if each of them is still alive which would increase the
 bandwidth usage but reliability would go up. If the number of nodes were
 decreased, reliability would go down along with bandwidth usage. The reason for
 this relationship between reliability and number of nodes is that if we assume
@@ -589,8 +663,8 @@ If the ping timeouts and delays between pings were higher it would decrease the
 bandwidth usage but increase the amount of disconnected nodes that are still
 being stored in the lists. Decreasing these delays would do the opposite.
 
-If the 8 nodes closest to each public key were increased to 16 it would
-increase the bandwidth usage, might increase hole punching efficiency on
+If the number 8 of nodes closest to each public key were increased to 16 it
+would increase the bandwidth usage, might increase hole punching efficiency on
 symmetric NATs (more ports to guess from, see Hole punching) and might increase
 the reliability. Lowering this number would have the opposite effect.
 
@@ -602,7 +676,7 @@ When receiving a get node packet, toxcore will find the 4 nodes, in its nodes
 lists, closest to the public key in the packet and send them in the send node
 response.
 
-The timeouts and number of nodes in lists for toxcore where picked by feeling
+The timeouts and number of nodes in lists for toxcore were picked by feeling
 alone and are probably not the best values. This also applies to the behavior
 which is simple and should be improved in order to make the network resist
 better to sybil attacks.
@@ -621,12 +695,11 @@ DHT Request packets are packets that can be sent across one DHT node to one
 that they know. They are used to send encrypted data to friends that we are not
 necessarily connected to directly in the DHT.
 
-A DHT node that receives a DHT request packet will check whether the node with
-the receivers public key is their DHT public key and, if it is, they will
-decrypt and handle the packet. If it is not they will check whether they know
-that DHT public key (if it's in their list of close nodes). If it isn't, they
-will drop the packet. If it is they will resend the exact packet to that DHT
-node.
+A DHT node that receives a DHT request packet will check whether the receivers
+public key is their DHT public key and, if it is, they will decrypt and handle
+the packet. If it is not they will check whether they know that DHT public key
+(if it's in their list of close nodes). If it isn't, they will drop the packet.
+If it is they will resend the exact packet to that DHT node.
 
 The encrypted message is encrypted using the receiver's DHT Public key, the
 sender's DHT private key and the nonce (randomly generated 24 bytes).
@@ -682,7 +755,7 @@ IP/port for the friend and we send a ping request to each of the returned
 IP/ports but get no response. If we have sent 4 ping requests to 4 IP/ports
 that supposedly belong to the friend and get no response, then this is enough
 for toxcore to start the hole punching. The numbers 8 and 4 are used in toxcore
-and where chosen based on feel alone and so may not be the best numbers.
+and were chosen based on feel alone and so may not be the best numbers.
 
 Before starting the hole punching, the peer will send a NAT ping packet to the
 friend via the peers that say they know the friend. If a NAT ping response with
@@ -717,7 +790,7 @@ we can do for the first option it is recommended to just use the most common IP
 returned by the peers and to ignore the other IP/ports.
 
 In the case where the peers return the same IP and port it means that the other
-friend is on a restricted cone NAT. These kind of NATs can be hole punched by
+friend is on a restricted cone NAT. These kinds of NATs can be hole punched by
 getting the friend to send a packet to our public IP/port. This means that hole
 punching can be achieved easily and that we should just continue sending DHT
 ping packets regularly to that IP/port until we get a ping response. This will
@@ -752,6 +825,20 @@ packets to his one IP/port. B will detect that A has a symmetric NAT and will
 send packets to it to try guessing his ports. If B manages to guess the port A
 is sending packets from they will connect together.
 
+## DHT Bootstrap Info (0xf0)
+
+Bootstrap nodes are regular Tox nodes with a stable DHT public key. This means
+the DHT public key does not change across restarts. DHT bootstrap nodes have
+one additional request kind: Bootstrap Info. The request is simply a packet of
+length 78 bytes where the first byte is 0xf0. The other bytes are ignored.
+
+The response format is as follows:
+
+| Length | Type   | [Contents](#protocol-packet) |
+|:-------|:-------|:-----------------------------|
+| `4`    | Word32 |  Bootstrap node version      |
+| `256`  | Bytes  |  Message of the day          |
+
 # LAN discovery
 
 LAN discovery is a way to discover Tox peers that are on a local network. If
@@ -776,7 +863,7 @@ The LAN Discovery packet:
 LAN Discovery packets contain the DHT public key of the sender. When a LAN
 Discovery packet is received, a DHT get nodes packet will be sent to the sender
 of the packet. This means that the DHT instance will bootstrap itself to every
-peer from which it receives one of these packet. Through this mechanism, Tox
+peer from which it receives one of these packets. Through this mechanism, Tox
 clients will bootstrap themselves automatically from other Tox clients running
 on the local network.
 
@@ -819,9 +906,9 @@ method just adds the friend to `friend_connection` and creates a new friend
 entry in Messenger for the friend.
 
 The Tox ID is used to identify peers so that they can be added as friends in
-Tox. In order to add a friend, a Tox user must have the friend's Tox ID.The Tox
-ID contains the long term public key of the peer (32 bytes) followed by the 4
-byte nospam (see: `friend_requests`) value and a 2 byte XOR checksum. The
+Tox. In order to add a friend, a Tox user must have the friend's Tox ID. The
+Tox ID contains the long term public key of the peer (32 bytes) followed by the
+4 byte nospam (see: `friend_requests`) value and a 2 byte XOR checksum. The
 method of sending the Tox ID to others is up to the user and the client but the
 recommended way is to encode it in hexadecimal format and have the user
 manually send it to the friend using another program.
@@ -1403,7 +1490,7 @@ The TCP server implementation in toxcore can currently either work on epoll on
 linux or using unoptimized but portable socket polling.
 
 TCP connections between the TCP client and the server are encrypted to prevent
-an outsider from knowing information like who is connecting to who just be
+an outsider from knowing information like who is connecting to whom just be
 looking at someones connection to a TCP server. This is useful when someone
 connects though something like Tor for example. It also prevents someone from
 injecting data in the stream and makes it so we can assume that any data
@@ -1767,7 +1854,7 @@ client must think that this client has simply disconnected from the TCP server.
 
 Disconnect notification (Sent by server to client): Sent by the server to the
 client to tell them that the connection with `connection_id` that was connected
-is now disconnect. It is sent either when the other client of the connection
+is now disconnected. It is sent either when the other client of the connection
 disconnect or when they tell the server to kill the connection (see above).
 
 Ping and Pong packets (can be sent by both client and server, both will
@@ -2134,10 +2221,10 @@ generates each peer number randomly but makes sure newly generated peer numbers
 are not equal to current ones already used by other peers in the group chat. If
 two peers join the groupchat from two different endpoints there is a small
 possibility that both will be given the same peer number however this
-possibility is low enough in practice that is is not an issue.
+possibility is low enough in practice that is not an issue.
 
 Temporary invited groupchat connections are groupchat connections to the
-groupchat inviter used by groupchat peers to bootstrap themselves the the
+groupchat inviter used by groupchat peers to bootstrap themselves the
 groupchat. They are the same thing as connections to groupchat peers via friend
 connections except that they are discarded after the peer is fully connected to
 the group chat.
@@ -2345,11 +2432,11 @@ list.
 Kill peer messages are used to indicate that a peer has quit the group chat. It
 is sent by the one quitting the group chat right before they quit it.
 
-name change messages are used to change or set the name of the peer sending it.
+Name change messages are used to change or set the name of the peer sending it.
 They are also sent by a joining peer right after receiving the list of peers in
 order to tell others what their name is.
 
-title change packets are used to change the title of the group chat and can be
+Title change packets are used to change the title of the group chat and can be
 sent by anyone in the group chat.
 
 Chat and action messages are used by the group chat peers to send messages to
@@ -2462,7 +2549,7 @@ cookie request packet (145 bytes):
 Encrypted message is encrypted with sender's DHT private key, receiver's DHT
 public key and the nonce.
 
-The packet id for cookie request packets is 24. The request contain the DHT
+The packet id for cookie request packets is 24. The request contains the DHT
 public key of the sender which is the key used (The DHT private key) (along
 with the DHT public key of the receiver) to encrypt the encrypted part of the
 cookie packet and a nonce also used to encrypt the encrypted part of the
@@ -2614,8 +2701,8 @@ The states of a connection:
 1.  Not accepted: Send handshake packets.
 
 2.  Accepted: A handshake packet has been received from the other peer but no
-    encrypted encrypted packets: continue (or start) sending handshake packets
-    because the peer can't know if the other has received them.
+    encrypted packets: continue (or start) sending handshake packets because
+    the peer can't know if the other has received them.
 
 3.  Confirmed: A valid encrypted packet has been received from the other peer:
     Connection is fully established: stop sending handshake packets.
@@ -2787,7 +2874,7 @@ numbers (0, 1, 2, 5) and then later a lossy packet with this second number as:
 How the reliability is achieved:
 
 First it is important to say that packet numbers do roll over, the next number
-after 0xFFFFFFFF (maximum value in 4 bytes) is 0. Hence all the mathematical
+after 0xFFFFFFFF (maximum value in 4 bytes) is 0. Hence, all the mathematical
 operations dealing with packet numbers are assumed to be done only on unsigned
 32 bit integer unless said otherwise. For example 0 - 0xFFFFFFFF would equal to
 1 because of the rollover.
@@ -3333,7 +3420,7 @@ public key of Node D and the nonce, and contains:
 | `32`   | Public key that we want those sending back data packets to use |
 | `8`    | Data to send back in response                                  |
 
-If the ping id is zero, respond with a announce response packet.
+If the ping id is zero, respond with an announce response packet.
 
 If the ping id matches the one the node sent in the announce response and the
 public key matches the one being searched for, add the part used to send data
@@ -3574,7 +3661,7 @@ Once the packet is contructed a random 24 byte nonce is generated, the packet
 is encrypted (the shared key used to decrypt the request can be saved and used
 to encrypt the response to save an expensive key derivation operation), the
 data to send back is copied to the unencrypted part and the packet is sent back
-as a onion response packet.
+as an onion response packet.
 
 In order to announce itself using onion announce packets toxcore first takes
 DHT peers, picks random ones and builds onion paths with them by saving 3
@@ -3623,7 +3710,7 @@ ping dead nodes too aggressively.
 
 Toxcore decides if it will send an announce packet to one of the 4 peers in the
 announce response by checking if the peer would be stored as one of the stored
-8 closest peers if it responded; if it would not be it doesn't send a announce
+8 closest peers if it responded; if it would not be it doesn't send an announce
 request, if it would be it sends one.
 
 Peers are only put in the 8 closest peers array if they respond to an announce
@@ -3657,7 +3744,7 @@ need to do a search for friend public keys only when first starting the
 instance (or going offline and back online) as peers starting up after us would
 be able to find us immediately just by searching for us. If we start searching
 for friends after we are announced we prevent a scenario where 2 friends start
-their clients at the same time but are enable to find each other right away
+their clients at the same time but are unable to find each other right away
 because they start searching for each other while they have not announced
 themselves.
 
@@ -3982,292 +4069,16 @@ the integers stored in these nodes are stored in Big Endian as well.
 This section indicates the end of the state file. This section doesn't have any
 content and thus it's length is 0.
 
-# Test protocol
-
-The test framework consists of a model implementation and a test runner. A
-“system under test” (SUT) is a protocol implementation that is tested by the
-test runner. The SUT is presented to the test runner as a standalone executable
-that communicates with it using pipes.
-
-The test runner and SUT both implement the binary test protocol.
-
-The test input is a length-prefixed test name and an arbitrary piece of data.
-The meaning of that data depends on the test name.
-
-| Length    | Type         | Contents       |
-|:----------|:-------------|:---------------|
-| `8`       | Int          | Length of name |
-| `$length` | Message Kind | Test name      |
-| `[0,]`    | Bytes        | Payload        |
-
-## Basic data encoding
-
-The test protocol uses a limited and well-defined set of types. Their binary
-encodings are specified here.
-
-In the `BinaryDecode` and `BinaryEncode` tests, the test name is followed by a
-data format name. The test runner will run both the decode and encode tests for
-each data format listed here.
-
-All lists are encoded as 64 bit length (big endian encoded) followed by each
-element concatenated. List is a parameterised type and as such is not used in
-tests directly.
-
-`String`: Strings are lists of bytes containing the UTF-8 encoded code points
-making up the string.
-
-`ByteString`: A ByteString is a list of 8 bit bytes.
-
-`Word32` is a 32 bit unsigned integer that is encoded in big endian.
-
-`NodeInfo`: Node Info is encoded in the [packed node
-format](#node-info-packed-node-format).
-
-## Deconstructed values
-
-Deconstructed values are used to test binary decoding and encoding capabilities
-of the implementation. To avoid simple echo implementations, the binary
-representation of a deconstructed value of complex types is usually different
-from the usual packet encoding. A deconstructed value contains sufficient
-information to construct a value.
-
-An isomorphism exists between the deconstructed value and the constructed
-value.
-
-The `construct` function shows how a value is constructed from its components.
-By default, there is no special construction, so the construct function is the
-identity function.
-
-The `deconstruct` function produces the separate components from a constructed
-value. Similarly to the construct function, the default deconstruct function is
-the identity function.
-
-The types `Word32`, `String`, and `ByteString` have no special deconstructed
-type and are just used as-is.
-
-### Deconstructed: Node Info
-
-The deconstructed Node Info value is a simple serialisation of each field,
-without packing the protocol and address family into the same byte using magic
-values.
-
-| Field       | Type     | Length                  |
-|:------------|:---------|:------------------------|
-| `is_tcp`    | `Bool`   | 1                       |
-| `is_ipv6`   | `Bool`   | 1                       |
-| IP address  | `Bytes`  | 4 for IPv4, 16 for IPv6 |
-| Port number | `Word16` | 2                       |
-| Public key  | `Bytes`  | 32                      |
-
-The transport protocol flag (`is_tcp`) is `False` (0x00) for UDP or `True`
-(0x01) for TCP. The address family flag is `False` for IPv4 or `True` for IPv6.
-
-## Test names
-
-Each test has a name that is used to identify the test so the rest of the input
-message (the payload) can be interpreted correctly.
-
-### Test: Failure Test
-
-This test receives no data and returns no data, but expects the test to always
-fail.
-
-| Length | Type | [Contents](#test-protocol) |
-|:-------|:-----|:---------------------------|
-| 0      | -    | No data                    |
-
-### Test: Success Test
-
-This test always succeeds, also with no data.
-
-| Length | Type | [Contents](#test-protocol) |
-|:-------|:-----|:---------------------------|
-| 0      | -    | No data                    |
-
-### Test: Skipped Test
-
-This test must be skipped, also with no data. If the SUT always returns Success
-or Failure, the test fails.
-
-| Length | Type | [Contents](#test-protocol) |
-|:-------|:-----|:---------------------------|
-| 0      | -    | No data                    |
-
-### Test: Binary Decode
-
-Checks whether the SUT can correctly decode values and produce the
-deconstructed value.
-
-Input:
-
-| Length | Type  | [Contents](#test-protocol) |
-|:-------|:------|:---------------------------|
-| `8`    | Int   | Length                     |
-| `[0,]` | Bytes | Binary encoding of value   |
-
-This test is parameterised by a [data format](#basic-data-encoding). The data
-format is part of the test name string. The test name "BinaryDecode" is
-followed by a space and the data format name (e.g. `"Word32"`, `"NodeInfo"`,
-...). Thus, the actual length is `12 + 1 + n` where `n` is the length of the
-data format name. The actual test name is then for example
-`"BinaryDecode NodeInfo"`. Every data format listed in the binary data encoding
-section is tested in both BinaryDecode and BinaryEncode.
-
-Not all binary encodings in the Tox protocol are self-delimiting, so an
-explicit length is prefixed to the bytes containing the binary encoding of the
-value.
-
-Output: The binary encoding of the [deconstructed value](#deconstructed-values)
-in a [Success](#success-result) message. On decoding failure, this test must
-return [Failure](#failure-result). If the SUT incorrectly determines that the
-byte array was a correct encoding of the data type, the test fails.
-
-### Test: Binary Encode
-
-Checks whether the SUT can correctly encode values given its constituent parts.
-This test is similar to the Binary Decode test, but receives the components the
-value is made of, instead of the encoded value itself.
-
-Input:
-
-| Length | Type  | [Contents](#test-protocol)             |
-|:-------|:------|:---------------------------------------|
-| `[0,]` | Bytes | Binary encoding of deconstructed value |
-
-Like [Binary Decode](#test-binary-decode), this test is also parameterised by
-[data format](#basic-data-encoding).
-
-All binary encodings of deconstructed values are self-delimiting, so an
-explicit length is not passed here.
-
-Output: The encoded value in a [Success](#success-result) message, not
-length-prefixed.
-
-### Test: Distance
-
-Checks whether the xor-distance metric works correctly.
-
-Input:
-
-| Length | Type       | [Contents](#test-protocol) |
-|:-------|:-----------|:---------------------------|
-| `32`   | Public Key | Origin key                 |
-| `32`   | Public Key | Alice key                  |
-| `32`   | Public Key | Bob key                    |
-
-Output:
-
-| Length | Type     | [Contents](#success-result) |
-|:-------|:---------|:----------------------------|
-| `1`    | Ordering | Less, Equal, or Greater     |
-
-The ordering value is encoded as follows:
-
-| Value   | Encoding | When                                                |
-|:--------|:---------|:----------------------------------------------------|
-| Less    | 0x00     | distance(Origin, Alice) &lt; distance(Origin, Bob)  |
-| Equal   | 0x01     | the distances are equal                             |
-| Greater | 0x02     | distance(Origin, Alice) &gt; distance(Origin, Bob). |
-
-### Test: Nonce Increment
-
-Checks whether the function to increment a nonce works correctly.
-
-Input: A 24-byte nonce.
-
-| Length | Type  | [Contents](#test-protocol) |
-|:-------|:------|:---------------------------|
-| `24`   | Nonce | Base nonce                 |
-
-Output:
-
-| Length | Type  | [Contents](#success-result) |
-|:-------|:------|:----------------------------|
-| `24`   | Nonce | Base nonce + 1              |
-
-### Test: K-Bucket Index
-
-Checks whether the K-bucket index is computed correctly.
-
-Input: Two public keys for Self and Other.
-
-| Length | Type       | [Contents](#test-protocol) |
-|:-------|:-----------|:---------------------------|
-| `32`   | Public Key | Base key                   |
-| `32`   | Public Key | Node key                   |
-
-Output: either `Nothing` or `Just i` in a [Success](#success-result) message.
-
-| Length | Value     | When                            |
-|:-------|:----------|:--------------------------------|
-| `1`    | 0x00      | Base key == Node key: `Nothing` |
-| `2`    | 0x01, `i` | otherwise: `Just i`             |
-
-The value of `i` is the k-bucket index of the Node key in a k-buckets instance
-with the given Base key.
-
-### Test: K-Bucket Nodes
-
-Input:
-
-| Length | Type           | [Contents](#test-protocol) |
-|:-------|:---------------|:---------------------------|
-| `8`    | Int            | Bucket size (k)            |
-| `32`   | Public Key     | Base key                   |
-| `[0,]` | \[Node Info\]  | Added nodes                |
-| `[0,]` | \[Public Key\] | Removed node keys          |
-
-The base key is the DHT public key of the simulated node. The added nodes is a
-list of nodes to consecutively add to the K-buckets. The removed nodes is a
-list of keys for which to consecutively remove the nodes from the K-buckets
-after adding all nodes from the added nodes list.
-
-Node Info is encoded with the packet node format. Recall that all lists are
-prefixed with a 64 bit length encoded in big endian.
-
-Output: A list of all nodes in the K-buckets.
-
-| Length | Type          | [Contents](#success-result) |
-|:-------|:--------------|:----------------------------|
-| `8`    | Int           | Length of node list         |
-| `[0,]` | \[Node Info\] | The node list               |
-
-## Result
-
-The Result type is written to stdout by the SUT. It is a single byte for
-Failure (0x00), Success (0x01), and Skipped (0x02), followed by the result
-data.
-
-### Failure Result
-
-In case of error, a `Failure` message is returned with an UTF-8 encoded failure
-message.
-
-| Length    | Type     | Contents       |
-|:----------|:---------|:---------------|
-| `1`       | `Tag`    | 0x00 (Failure) |
-| `8`       | `Int`    | length         |
-| `$length` | `String` | error message  |
-
-### Success Result
-
-In case of success, a `Success` message with an arbitrary piece of data is
-returned, depending on the test name in the input.
-
-| Length | Type    | Contents       |
-|:-------|:--------|:---------------|
-| `1`    | `Tag`   | 0x01 (Success) |
-| `[0,]` | `Bytes` | Payload        |
-
-### Skipped Result
-
-Tests can be skipped by returning a `Skipped` message. These tests will be
-ignored and reported as successful.
-
-| Length | Type  | Contents       |
-|:-------|:------|:---------------|
-| `1`    | `Tag` | 0x02 (Skipped) |
-
-All tests are ran with randomly generated inputs. The test runner has a
-`--seed` parameter to set the random seed to a fixed value. This helps make
-tests reproducible.
+# Testing
+
+The final part of the architecture is the test protocol. We use a
+[MessagePack](http://msgpack.org) based RPC protocol to expose language
+agnostic interfaces to internal functions. Using property based testing with
+random inputs as well as specific edge case tests help ensure that an
+implementation of the Tox protocol following the architecture specified in this
+document is correct.
+
+See the [spec](https://github.com/msgpack/msgpack/blob/master/spec.md) of
+msgpack for information on the binary representation.
+
+TODO(iphydf): Generate and add specifications of each test method here.
